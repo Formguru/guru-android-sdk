@@ -16,11 +16,10 @@ allprojects {
 And then declare the dependency:
 ```
 dependencies {
-    implementation 'com.github.Formguru:guru-android-sdk:1.0.0'
+    implementation 'com.github.Formguru:guru-android-sdk:X.Y.Z'
 }
 ```
-
-To find the latest release versions, check the [Releases](https://github.com/Formguru/guru-android-sdk/releases) page.
+To find the latest release version, check the [Releases](https://github.com/Formguru/guru-android-sdk/releases) page.
 
 Once you have the dependency declared, take a look at our 
 [Getting Started Guide](https://blog.getguru.ai/get-started-with-guru-in-10-minutes-524b2a009be) 
