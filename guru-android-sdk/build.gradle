@@ -4,6 +4,9 @@ plugins {
     id 'maven-publish'
 }
 
+group = 'com.github.Formguru'
+version = '1.0.0'
+
 android {
     namespace 'ai.getguru.androidsdk'
     compileSdk 30
@@ -43,15 +46,14 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
 
-publishing {
-    publications {
-        release(MavenPublication) {
-            groupId = 'ai.getguru'
-            artifactId = 'guru-android-sdk'
-            version = '1.0.0'
-
-            afterEvaluate {
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
                 from components.release
+                groupId = 'com.github.Formguru'
+                artifactId = 'guru-android-sdk'
+                version = '1.0.0'
             }
         }
     }
