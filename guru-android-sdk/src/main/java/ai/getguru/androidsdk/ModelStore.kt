@@ -56,13 +56,14 @@ class ModelStore(
 
         val url = modelMetadata.modelUri
         url.openConnection().getInputStream().use { input ->
-            val outputFile = File(getModelStoreRoot(), "${modelMetadata.modelId}.ptl")
+            val fileRoot = getModelStoreRoot()
+            fileRoot.mkdirs()
+
+            val outputFile = File(fileRoot, "${modelMetadata.modelId}.ptl")
             if (outputFile.exists()) {
                 outputFile.delete()
             }
-            else {
-                outputFile.mkdirs()
-            }
+
             outputFile.outputStream().use { output ->
                 input.copyTo(output)
             }
