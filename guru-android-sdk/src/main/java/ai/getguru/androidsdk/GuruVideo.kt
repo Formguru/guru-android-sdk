@@ -4,5 +4,7 @@ import android.media.Image
 
 interface GuruVideo {
 
-    fun newFrame(frame: Image): FrameInference
+    suspend fun newFrame(frame: Image): FrameInference
+
+    suspend fun finish(): Analysis
 }

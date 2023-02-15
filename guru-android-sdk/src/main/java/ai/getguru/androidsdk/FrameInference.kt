@@ -5,6 +5,9 @@ import kotlin.collections.HashMap
 class FrameInference constructor(
     val keypoints: Map<Int, Keypoint>,
     val previousFrame: FrameInference?,
+    val frameIndex: Int,
+    val secondsSinceStart: Double,
+    val analysis: Analysis,
 ) {
     val smoothKeypoints: Map<Int, Keypoint>
 
