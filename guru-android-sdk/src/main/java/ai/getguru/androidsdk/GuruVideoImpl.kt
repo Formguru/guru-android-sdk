@@ -56,6 +56,15 @@ class GuruVideoImpl constructor(
         return runInference(imageToBitmap(frame), newFrameIndex)
     }
 
+    override suspend fun newFrame(frame: Bitmap): FrameInference {
+        val newFrameIndex = frameIndex.incrementAndGet()
+        if (!inferenceLock.tryLock()) {
+            return previousFrameInference(newFrameIndex)
+        }
+
+        return runInference(frame, newFrameIndex)
+    }
+
     override suspend fun finish(): Analysis {
         if (analysisClient == null) {
             return emptyAnalysis()
