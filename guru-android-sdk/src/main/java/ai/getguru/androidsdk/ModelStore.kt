@@ -56,10 +56,6 @@ class ModelStore(
     private fun downloadFile(modelMetadata: ModelMetadata): File {
         Log.i(LOG_TAG, "Downloading model: $modelMetadata")
 
-        val url = modelMetadata.modelUri
-        val connection = url.openConnection() as HttpURLConnection
-        connection.requestMethod = "GET"
-
         val fileRoot = getModelStoreRoot()
         fileRoot.mkdirs()
 
@@ -68,21 +64,12 @@ class ModelStore(
             outputFile.delete()
         }
 
+        val url = modelMetadata.modelUri
+        val connection = url.openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
         outputFile.outputStream().use { output ->
             connection.inputStream.use { input ->
-                val buffer = ByteArray(1024)
-                var bytesRead: Int
-                var totalBytesRead: Long = 0
-                val fileSize: Long = connection.contentLength.toLong()
-
-                while (input.read(buffer).also { bytesRead = it } != -1) {
-                    output.write(buffer, 0, bytesRead)
-                    totalBytesRead += bytesRead
-                    val progress = ((totalBytesRead * 100) / fileSize).toInt()
-
-                    // Update progress here (e.g. send a broadcast or update a progress bar)
-                    Log.d(LOG_TAG, "Download progress: $progress%")
-                }
+                input.copyTo(output)
             }
         }
 
