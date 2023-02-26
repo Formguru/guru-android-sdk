@@ -7,6 +7,8 @@ import kotlinx.coroutines.*
 import org.pytorch.LiteModuleLoader
 import org.pytorch.Module
 import java.io.File
+import java.io.IOException
+import java.net.HttpURLConnection
 import java.net.URL
 
 data class OnDeviceModel(
@@ -55,19 +57,41 @@ class ModelStore(
         Log.i(LOG_TAG, "Downloading model: $modelMetadata")
 
         val url = modelMetadata.modelUri
-        url.openConnection().getInputStream().use { input ->
-            val fileRoot = getModelStoreRoot()
-            fileRoot.mkdirs()
+        val connection = url.openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
 
-            val outputFile = File(fileRoot, "${modelMetadata.modelId}.ptl")
-            if (outputFile.exists()) {
-                outputFile.delete()
-            }
+        val fileRoot = getModelStoreRoot()
+        fileRoot.mkdirs()
 
-            outputFile.outputStream().use { output ->
-                input.copyTo(output)
+        val outputFile = File(fileRoot, "${modelMetadata.modelId}.ptl.tmp")
+        if (outputFile.exists()) {
+            outputFile.delete()
+        }
+
+        outputFile.outputStream().use { output ->
+            connection.inputStream.use { input ->
+                val buffer = ByteArray(1024)
+                var bytesRead: Int
+                var totalBytesRead: Long = 0
+                val fileSize: Long = connection.contentLength.toLong()
+
+                while (input.read(buffer).also { bytesRead = it } != -1) {
+                    output.write(buffer, 0, bytesRead)
+                    totalBytesRead += bytesRead
+                    val progress = ((totalBytesRead * 100) / fileSize).toInt()
+
+                    // Update progress here (e.g. send a broadcast or update a progress bar)
+                    Log.d(LOG_TAG, "Download progress: $progress%")
+                }
             }
-            return outputFile
+        }
+
+        if (outputFile.exists()) {
+            val renamedFile = File(fileRoot, "${modelMetadata.modelId}.ptl")
+            outputFile.renameTo(renamedFile)
+            return renamedFile
+        } else {
+            throw IOException("Failed to download file")
         }
     }
 
