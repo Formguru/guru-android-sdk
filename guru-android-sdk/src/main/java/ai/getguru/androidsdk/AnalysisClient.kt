@@ -115,7 +115,7 @@ class AnalysisClient(
 
         for (nextLandmark in InferenceLandmark.values()) {
             inference.keypointForLandmark(nextLandmark)?.let { keypoint ->
-                json[nextLandmark.value] = mapOf(
+                json[nextLandmark.camelCase()] = mapOf(
                     "x" to keypoint.x,
                     "y" to keypoint.y,
                     "score" to keypoint.score

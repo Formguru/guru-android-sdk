@@ -1,6 +1,7 @@
 package ai.getguru.androidsdk
 
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -33,7 +34,9 @@ class AnalysisClientTest {
         runBlocking {
             analysisClient.add(
                 FrameInference(
-                    emptyMap(),
+                    mapOf(
+                        InferenceLandmark.LEFT_HIP.cocoIndex() to Keypoint(0.5, 0.5, 1.0),
+                    ),
                     null,
                     0,
                     0.0,
@@ -43,6 +46,9 @@ class AnalysisClientTest {
 
             val request = server.takeRequest()
             assertTrue(request.path!!.endsWith("/videos/$videoId/j2p"))
+            val mapType = object : TypeToken<List<Map<String, Any>>>() {}.type
+            val body: List<Map<String, Any>> = gson.fromJson(request.body.readUtf8(), mapType)
+            assertTrue(body[0].containsKey(InferenceLandmark.LEFT_HIP.camelCase()))
         }
     }
 }

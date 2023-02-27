@@ -17,5 +17,37 @@ enum class InferenceLandmark(val value: String) {
     LEFT_KNEE("left_knee"),
     RIGHT_KNEE("right_knee"),
     LEFT_ANKLE("left_ankle"),
-    RIGHT_ANKLE("right_ankle"),
+    RIGHT_ANKLE("right_ankle");
+
+    private val cocoKeypoints = arrayOf(
+        "nose",
+        "left_eye",
+        "right_eye",
+        "left_ear",
+        "right_ear",
+        "left_shoulder",
+        "right_shoulder",
+        "left_elbow",
+        "right_elbow",
+        "left_wrist",
+        "right_wrist",
+        "left_hip",
+        "right_hip",
+        "left_knee",
+        "right_knee",
+        "left_ankle",
+        "right_ankle",
+    )
+    private val cocoLabelToIdx = cocoKeypoints.associateBy ({ it }, { cocoKeypoints.indexOf(it) } )
+
+    private val snakeCaseRegex = "_[a-zA-Z]".toRegex()
+    fun camelCase(): String {
+        return snakeCaseRegex.replace(value) {
+            it.value.replace("_","").uppercase()
+        }
+    }
+
+    fun cocoIndex(): Int {
+        return cocoLabelToIdx[value]!!
+    }
 }

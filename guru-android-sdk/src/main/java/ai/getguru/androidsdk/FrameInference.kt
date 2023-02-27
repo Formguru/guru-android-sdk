@@ -11,27 +11,6 @@ class FrameInference constructor(
 ) {
     val smoothKeypoints: Map<Int, Keypoint>
 
-    val cocoKeypoints = arrayOf(
-        "nose",
-        "left_eye",
-        "right_eye",
-        "left_ear",
-        "right_ear",
-        "left_shoulder",
-        "right_shoulder",
-        "left_elbow",
-        "right_elbow",
-        "left_wrist",
-        "right_wrist",
-        "left_hip",
-        "right_hip",
-        "left_knee",
-        "right_knee",
-        "left_ankle",
-        "right_ankle",
-    )
-    val cocoLabelToIdx = cocoKeypoints.associateBy ({ it }, { cocoKeypoints.indexOf(it) } )
-
     val cocoPairs = arrayOf(
         arrayOf("left_shoulder", "right_shoulder"),
         arrayOf("left_shoulder", "left_hip"),
@@ -56,9 +35,7 @@ class FrameInference constructor(
     }
 
     fun keypointForLandmark(landmark: InferenceLandmark): Keypoint? {
-        return smoothKeypoints[
-            cocoLabelToIdx[landmark.value]
-        ]
+        return smoothKeypoints[landmark.cocoIndex()]
     }
 
     fun userFacing(): UserFacing {
@@ -91,7 +68,7 @@ class FrameInference constructor(
         val smoothedKeypoints = HashMap<Int, Keypoint>()
         for (nextLandmark in InferenceLandmark.values()) {
             val previousKeypoint = previousFrame!!.keypointForLandmark(nextLandmark)
-            val landmarkIndex = cocoLabelToIdx[nextLandmark.value]!!
+            val landmarkIndex = nextLandmark.cocoIndex()
             val currentKeypoint = keypoints[landmarkIndex]
 
             val minScore = 0.01
