@@ -44,6 +44,9 @@ class ModelStore(
     override val coroutineContext
         get() = Dispatchers.IO
 
+    var startedDownloadCallback: (() -> Unit)? = null
+    var finishedDownloadCallback: (() -> Unit)? = null
+
     suspend fun getModel(): Module {
         if (model == null) {
             model = loadModel()
@@ -55,6 +58,7 @@ class ModelStore(
     @Throws(Exception::class)
     private fun downloadFile(modelMetadata: ModelMetadata): File {
         Log.i(LOG_TAG, "Downloading model: $modelMetadata")
+        startedDownloadCallback?.invoke()
 
         val fileRoot = getModelStoreRoot()
         fileRoot.mkdirs()
@@ -76,6 +80,7 @@ class ModelStore(
         if (outputFile.exists()) {
             val renamedFile = File(fileRoot, "${modelMetadata.modelId}.ptl")
             outputFile.renameTo(renamedFile)
+            finishedDownloadCallback?.invoke()
             return renamedFile
         } else {
             throw IOException("Failed to download file")
@@ -96,7 +101,15 @@ class ModelStore(
         return models.first { it.modelType.lowercase() == ModelType.POSE.name.lowercase() }
     }
 
-    private suspend fun fetchModel(): File {
+    suspend fun doesModelNeedDownloading(): Boolean {
+        val localModels = listLocalModels()
+        val latestModelMetadata = fetchLatestModelMetadata()
+
+        val localModel = localModels.firstOrNull { it.modelId == latestModelMetadata.modelId }
+        return localModel == null
+    }
+
+    suspend fun fetchModel(): File {
         val localModels = listLocalModels()
         val latestModelMetadata = fetchLatestModelMetadata()
 
