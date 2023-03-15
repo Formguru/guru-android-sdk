@@ -1,5 +1,6 @@
 package ai.getguru.androidsdk
 
+import ai.getguru.androidsdk.ImageUtils.toBitmap
 import android.content.Context
 import android.graphics.Bitmap
 import android.media.Image
@@ -24,6 +25,7 @@ class GuruVideoImpl constructor(
     private val domain: String,
     private val activity: String,
     private val analysisPerSecond: Int = 8,
+    private val beginRecordingImmediately: Boolean = true,
 ) : GuruVideo {
 
     private val LOG_TAG = "GuruVideoImpl"
@@ -32,28 +34,31 @@ class GuruVideoImpl constructor(
     private var latestAnalysis: Analysis? = null
     private var frameIndex: AtomicInteger = AtomicInteger(-1)
     private val inferenceLock = ReentrantLock()
-    private var poseEstimator: PoseEstimator? = null
+    private var poseEstimator: IPoseEstimator? = null
     private var videoId: String? = null
     private var startedAt: Instant? = null
     private var analysisClient: AnalysisClient? = null
     private val httpClient = OkHttpClient()
     private val analysisScope = CoroutineScope(context = Dispatchers.IO)
+    private var isRecording = beginRecordingImmediately
 
     companion object {
-        suspend fun create(domain: String, activity: String, apiKey: String, context: Context): GuruVideoImpl {
-            return GuruVideoImpl(apiKey, context, domain, activity).also {
+        suspend fun create(domain: String, activity: String, apiKey: String, context: Context, beginRecordingImmediately: Boolean = true): GuruVideoImpl {
+            return GuruVideoImpl(apiKey, context, domain, activity, beginRecordingImmediately = beginRecordingImmediately).also {
                 it.init()
             }
         }
     }
 
-    override suspend fun newFrame(frame: Image): FrameInference {
-        val newFrameIndex = frameIndex.incrementAndGet()
-        if (!inferenceLock.tryLock()) {
-            return previousFrameInference(newFrameIndex)
+    override fun beginRecording() {
+        if (isRecording) {
+            throw IllegalStateException("Received a call to beginRecording(), but recording is already in progress!")
         }
+        isRecording = true
+    }
 
-        return runInference(imageToBitmap(frame), newFrameIndex)
+    override suspend fun newFrame(frame: Image, rotationDegrees: Int): FrameInference {
+        return newFrame(frame.toBitmap(rotationDegrees))
     }
 
     override suspend fun newFrame(frame: Bitmap): FrameInference {
@@ -66,12 +71,12 @@ class GuruVideoImpl constructor(
     }
 
     override suspend fun finish(): Analysis {
-        if (analysisClient == null) {
-            return emptyAnalysis()
-        }
-        else {
+        isRecording = false
+        return if (analysisClient == null) {
+            emptyAnalysis()
+        } else {
             analysisClient!!.waitUntilQuiet()
-            return analysisClient!!.flush() ?: emptyAnalysis()
+            analysisClient!!.flush() ?: emptyAnalysis()
         }
     }
 
@@ -103,51 +108,17 @@ class GuruVideoImpl constructor(
         }
     }
 
-    private fun imageToBitmap(image: Image): Bitmap {
-        val planes = image.planes
-        val yuvBytes = arrayOfNulls<ByteArray>(3)
-        for (i in planes.indices) {
-            val buffer = planes[i].buffer
-            if (yuvBytes[i] == null) {
-                yuvBytes[i] = ByteArray(buffer.capacity())
-            }
-            buffer[yuvBytes[i]!!]
-        }
-
-        val yRowStride = planes[0].rowStride
-        val uvRowStride = planes[1].rowStride
-        val uvPixelStride = planes[1].pixelStride
-        val rgbBytes = IntArray(image.width * image.height)
-        ImageUtils.convertYUV420ToARGB8888(
-            yuvBytes[0]!!,
-            yuvBytes[1]!!,
-            yuvBytes[2]!!,
-            image.width,
-            image.height,
-            yRowStride,
-            uvRowStride,
-            uvPixelStride,
-            rgbBytes
-        )
-
-        val rgbFrameBitmap = Bitmap.createBitmap(image.width, image.height, Bitmap.Config.ARGB_8888)
-        rgbFrameBitmap?.setPixels(rgbBytes, 0, image.width, 0, 0, image.width, image.height)
-
-        return rgbFrameBitmap
-    }
 
     private suspend fun init() {
         val modelStore = ModelStore(apiKey, context)
-        poseEstimator = PoseEstimator.withTorchModel(
-            modelStore.getModel()
-        )
+        poseEstimator = modelStore.getPoseEstimator()
     }
 
     private fun previousFrameInference(newFrameIndex: Int, analysis: Analysis? = null): FrameInference {
         val analysis = analysis ?: latestAnalysis ?: emptyAnalysis()
         if (previousFrameInference == null) {
             return FrameInference(
-                keypoints = HashMap<Int, Keypoint>(),
+                keypoints = HashMap(),
                 previousFrame = null,
                 frameIndex = newFrameIndex,
                 secondsSinceStart = 0.0,
@@ -166,7 +137,7 @@ class GuruVideoImpl constructor(
     }
 
     private suspend fun runInference(frame: Bitmap, newFrameIndex: Int): FrameInference {
-        if (startedAt == null) {
+        if (isRecording && startedAt == null) {
             startedAt = Instant.now()
             videoId = createVideo()
             analysisClient = AnalysisClient(videoId!!, apiKey, analysisPerSecond)
@@ -184,16 +155,18 @@ class GuruVideoImpl constructor(
                 keypoints = keypointMap,
                 previousFrame = previousFrameInference,
                 frameIndex = newFrameIndex,
-                secondsSinceStart = (
-                        frameTimestamp.toEpochMilli() - startedAt!!.toEpochMilli()
-                        ) / 1000.0,
+                secondsSinceStart = if (startedAt == null) -1.0 else (
+                        (frameTimestamp.toEpochMilli() - startedAt!!.toEpochMilli()) / 1000.0
+                ),
                 analysis = latestAnalysis ?: emptyAnalysis()
             )
 
-            analysisScope.launch {
-                val newAnalysis = analysisClient!!.add(newInference)
-                if (newAnalysis != null) {
-                    latestAnalysis = newAnalysis
+            if (isRecording && analysisClient != null) {
+                analysisScope.launch {
+                    val newAnalysis = analysisClient!!.add(newInference)
+                    if (newAnalysis != null) {
+                        latestAnalysis = newAnalysis
+                    }
                 }
             }
 

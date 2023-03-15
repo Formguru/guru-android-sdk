@@ -10,6 +10,14 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        ivy {
+            // https://github.com/Tencent/ncnn/releases/download/20230223/ncnn-20230223-android-vulkan.zip
+            url 'https://github.com'
+            patternLayout {
+                artifact '/[organization]/[module]/releases/download/[revision]/[module]-[revision]-android-vulkan.[ext]'
+            }
+            metadataSources { artifact() }
+        }
     }
 }
 rootProject.name = "GuruAndroidSDK"

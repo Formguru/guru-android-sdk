@@ -5,11 +5,11 @@ import android.util.Log
 import com.google.gson.Gson
 import kotlinx.coroutines.*
 import org.pytorch.LiteModuleLoader
-import org.pytorch.Module
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.zip.ZipFile
 
 data class OnDeviceModel(
     val modelId: String,
@@ -38,18 +38,63 @@ class ModelStore(
 ) : CoroutineScope {
 
     private val LOG_TAG = "ModelStore"
-    private var model: Module? = null
     private val useLocalModel = false
 
     override val coroutineContext
         get() = Dispatchers.IO
 
-    suspend fun getModel(): Module {
-        if (model == null) {
-            model = loadModel()
+    suspend fun getPoseEstimator(): IPoseEstimator {
+        val modelFiles = getModelFiles()
+        val isNcnn = modelFiles.size == 2 && listOf(".param", ".bin").all { suffix -> modelFiles.any { it.name.endsWith(suffix) } }
+        val isTorchLite = modelFiles.size == 1 && modelFiles[0].name.endsWith(".ptl")
+        if (isNcnn) {
+            val paramFile = modelFiles.first() { it.name.endsWith(".param") }
+            val binFile = modelFiles.first() { it.name.endsWith(".bin") }
+            return NcnnPoseEstimator(paramFile, binFile)
+        } else if (isTorchLite) {
+            val ptlFile = modelFiles.first()
+            val model = LiteModuleLoader.load(ptlFile.absolutePath)
+            return TorchLitePoseEstimator.withTorchModel(model)
+        } else {
+            throw Exception("Unexpected model type: ${modelFiles[0].name.substringAfterLast(".")}")
         }
+    }
 
-        return model!!
+    private suspend fun getModelFiles(): List<File> {
+        val modelFile = fetchModel()
+        if (modelFile.name.endsWith(".zip")) {
+            val modelDir = File(modelFile.parentFile, modelFile.nameWithoutExtension)
+            if (!modelDir.exists()) {
+                modelDir.mkdir()
+            }
+            return unzip(modelFile, modelDir)
+        } else {
+            return listOf(modelFile)
+        }
+    }
+
+    private fun unzip(zipFile: File, outputDir: File): List<File> {
+        val files = mutableListOf<File>()
+        val zip = ZipFile(zipFile)
+        val entries = zip.entries()
+        while (entries.hasMoreElements()) {
+            val entry = entries.nextElement()
+            val entryFile = File(outputDir, entry.name)
+            if (entry.isDirectory) {
+                entryFile.mkdirs()
+            } else {
+                entryFile.parentFile.mkdirs()
+                if (!entryFile.exists()) {
+                    zip.getInputStream(entry).use { input ->
+                        entryFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                }
+                files.add(entryFile)
+            }
+        }
+        return files
     }
 
     @Throws(Exception::class)
@@ -59,9 +104,15 @@ class ModelStore(
         val fileRoot = getModelStoreRoot()
         fileRoot.mkdirs()
 
-        val outputFile = File(fileRoot, "${modelMetadata.modelId}.ptl.tmp")
+        val objectName = modelMetadata.modelUri.toString().split("/").last()
+        val extension = objectName.substringAfter(".", missingDelimiterValue = "")
+        if (extension.isEmpty()) {
+            throw IOException("Invalid model file")
+        }
+        val fileName = "${modelMetadata.modelId}.${extension}"
+        val outputFile = File(fileRoot, fileName)
         if (outputFile.exists()) {
-            outputFile.delete()
+            return outputFile
         }
 
         val url = modelMetadata.modelUri
@@ -73,13 +124,10 @@ class ModelStore(
             }
         }
 
-        if (outputFile.exists()) {
-            val renamedFile = File(fileRoot, "${modelMetadata.modelId}.ptl")
-            outputFile.renameTo(renamedFile)
-            return renamedFile
-        } else {
+        if (!outputFile.exists()) {
             throw IOException("Failed to download file")
         }
+        return outputFile
     }
 
     private fun getModelStoreRoot(): File {
@@ -111,6 +159,14 @@ class ModelStore(
             throw ModelDownloadFailedException("Failed to download ${latestModelMetadata.modelUri}", e)
         }
     }
+    private fun getListModelsUrl(): URL {
+        val params = mapOf(
+            "platform" to "android",
+            "sdkVersion" to Version.ANDROID_SDK_VERSION,
+        )
+        val queryString = params.map { (k, v) -> "${k}=${v}" }.joinToString("&")
+        return URL("https://api.getguru.fitness/mlmodels/ondevice?${queryString}")
+    }
 
     private suspend fun listRemoteModels(): List<ModelMetadata> {
         getOnDeviceModelOverride()?.let {
@@ -118,8 +174,8 @@ class ModelStore(
         }
 
         return withContext(Dispatchers.IO) {
-            val listModelsUrl = URL("https://api.getguru.fitness/mlmodels/ondevice")
-            val urlConnection = listModelsUrl.openConnection()
+            val url = getListModelsUrl()
+            val urlConnection = url.openConnection()
             urlConnection.setRequestProperty("x-api-key", apiKey)
             urlConnection.getInputStream().use {
                 val jsonResponse = it.bufferedReader().readText()
@@ -136,14 +192,12 @@ class ModelStore(
             if (file.name.endsWith(".ptl")) {
                 val modelId = file.nameWithoutExtension
                 results.add(OnDeviceModel(modelId, root.resolve(file.name)))
+            } else if (file.name.endsWith(".ncnn.zip")) {
+                val modelId = file.name.substringBeforeLast(".ncnn.zip")
+                results.add(OnDeviceModel(modelId, root.resolve(file.name)))
             }
         }
         return results
-    }
-
-    private suspend fun loadModel(): Module {
-        val modelFile = fetchModel()
-        return LiteModuleLoader.load(modelFile.absolutePath)
     }
 
     private fun getOnDeviceModelOverride(): ModelMetadata? {

@@ -9,7 +9,6 @@ class FrameInference constructor(
     val secondsSinceStart: Double,
     val analysis: Analysis,
 ) {
-    val smoothKeypoints: Map<Int, Keypoint>
 
     val cocoPairs = arrayOf(
         arrayOf("left_shoulder", "right_shoulder"),
@@ -26,12 +25,18 @@ class FrameInference constructor(
         arrayOf("right_elbow", "right_wrist"),
     )
 
-    init {
-        smoothKeypoints = if (previousFrame?.smoothKeypoints == null) {
+    val smoothKeypoints: Map<Int, Keypoint> by lazy {
+        if (previousFrame?.smoothKeypoints == null) {
             keypoints
         } else {
             buildSmoothedKeypoints()
         }
+    }
+
+    fun skeleton(useSmoothing: Boolean): Keypoints {
+        val kpts = if (useSmoothing) smoothKeypoints else keypoints
+        val orderedKeypoints = kpts.keys.toList().sorted().map { i -> kpts[i]!! }
+        return Keypoints.of(orderedKeypoints.toList())
     }
 
     fun keypointForLandmark(landmark: InferenceLandmark): Keypoint? {
@@ -63,7 +68,7 @@ class FrameInference constructor(
     }
 
     private fun buildSmoothedKeypoints() : Map<Int, Keypoint> {
-        val currentFrameWeight = 0.25
+        val currentFrameWeight = 0.5
 
         val smoothedKeypoints = HashMap<Int, Keypoint>()
         for (nextLandmark in InferenceLandmark.values()) {

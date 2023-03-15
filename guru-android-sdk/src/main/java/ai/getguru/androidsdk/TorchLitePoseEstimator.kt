@@ -6,18 +6,21 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import ai.getguru.androidsdk.Keypoints.Companion.of
 import ai.getguru.androidsdk.Keypoints.Companion.parse
-import org.pytorch.*
+import org.pytorch.Module
+import org.pytorch.IValue
+import org.pytorch.Tensor
+import org.pytorch.MemoryFormat
 import org.pytorch.torchvision.TensorImageUtils
 import java.io.IOException
 
-class PoseEstimator private constructor(private val module: Module) {
+class TorchLitePoseEstimator private constructor(private val module: Module) : IPoseEstimator {
 
-    fun estimatePose(bitmap: Bitmap): Keypoints {
+    override fun estimatePose(bitmap: Bitmap): Keypoints {
         val defaultBbox = BoundingBox(0, 0, bitmap.width, bitmap.height)
         return estimatePose(bitmap, defaultBbox)
     }
 
-    fun estimatePose(bitmap: Bitmap, boundingBox: BoundingBox?): Keypoints {
+    override fun estimatePose(bitmap: Bitmap, boundingBox: BoundingBox?): Keypoints {
         // TODO: pre-crop using the bounding-box and scale the person height to 200px w/ 25% padding
         // (for now the bounding-box is completely ignored)
         val preprocessed = zeroPadToSize(
@@ -44,8 +47,8 @@ class PoseEstimator private constructor(private val module: Module) {
         private const val INPUT_WIDTH = 192
         private const val INPUT_HEIGHT = 256
         @Throws(IOException::class)
-        fun withTorchModel(model: Module): PoseEstimator {
-            return PoseEstimator(model)
+        fun withTorchModel(model: Module): TorchLitePoseEstimator {
+            return TorchLitePoseEstimator(model)
         }
 
         private fun zeroPadToSize(image: Bitmap, destWidth: Int, destHeight: Int): ImageFeatures {
