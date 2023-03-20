@@ -52,8 +52,6 @@ JNIEXPORT jfloatArray JNICALL Java_ai_getguru_androidsdk_NcnnPoseEstimator_detec
     double elapsed = ncnn::get_current_time() - start_time;
     __android_log_print(ANDROID_LOG_DEBUG, "guru_pose_inference", "Inference took %.2fms", elapsed);
 
-    // intentionally drop the feet keypoints so that the viz is less cluttered...
-
     jfloat output[keypoints.size() * 3];
     uint_t k = 0;
     for (KeyPoint kpt: keypoints) {

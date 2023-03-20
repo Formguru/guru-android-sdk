@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.Image
 import java.io.ByteArrayOutputStream
+import kotlin.math.roundToInt
 
 
 object ImageUtils {
@@ -40,5 +41,11 @@ object ImageUtils {
             rotate.postRotate(rotationDegrees.toFloat())
             Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, rotate, true)
         }
+    }
+
+    fun Bitmap.crop(box: BoundingBox): Bitmap {
+        val width = box.x2 - box.x1
+        val height = box.y2 - box.y1
+        return Bitmap.createBitmap(this, box.x1, box.y1, width, height)
     }
 }

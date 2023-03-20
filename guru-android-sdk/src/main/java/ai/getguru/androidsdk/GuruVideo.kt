@@ -12,7 +12,5 @@ interface GuruVideo {
 
     suspend fun newFrame(frame: Bitmap): FrameInference
 
-    fun beginRecording()
-
     suspend fun finish(): Analysis
 }

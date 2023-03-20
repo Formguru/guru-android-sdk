@@ -7,6 +7,7 @@ import java.util.stream.Collectors
 
 class Keypoints private constructor(private val keypoints: List<Keypoint>) :
     ForwardingList<Keypoint>() {
+
     override fun delegate(): List<Keypoint> {
         return keypoints
     }
@@ -18,6 +19,10 @@ class Keypoints private constructor(private val keypoints: List<Keypoint>) :
                 )
             }
             .collect(Collectors.toList())
+    }
+
+    operator fun get(landmark: InferenceLandmark): Keypoint? {
+       return keypoints[landmark.cocoIndex()]
     }
 
     companion object {

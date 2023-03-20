@@ -25,7 +25,7 @@ class GuruVideoImpl constructor(
     private val domain: String,
     private val activity: String,
     private val analysisPerSecond: Int = 8,
-    private val beginRecordingImmediately: Boolean = true,
+    private val smoother: KeypointsFilter? = null, // TODO: make private
 ) : GuruVideo {
 
     private val LOG_TAG = "GuruVideoImpl"
@@ -40,21 +40,17 @@ class GuruVideoImpl constructor(
     private var analysisClient: AnalysisClient? = null
     private val httpClient = OkHttpClient()
     private val analysisScope = CoroutineScope(context = Dispatchers.IO)
-    private var isRecording = beginRecordingImmediately
+
 
     companion object {
-        suspend fun create(domain: String, activity: String, apiKey: String, context: Context, beginRecordingImmediately: Boolean = true): GuruVideoImpl {
-            return GuruVideoImpl(apiKey, context, domain, activity, beginRecordingImmediately = beginRecordingImmediately).also {
+        suspend fun create(domain: String, activity: String, apiKey: String, context: Context): GuruVideoImpl {
+            return GuruVideoImpl(apiKey, context, domain, activity, smoother = KeypointsFilter()).also {
                 it.init()
             }
         }
-    }
 
-    override fun beginRecording() {
-        if (isRecording) {
-            throw IllegalStateException("Received a call to beginRecording(), but recording is already in progress!")
-        }
-        isRecording = true
+        const val INPUT_RESOLUTION_WIDTH = 480
+        const val INPUT_RESOLUTION_HEIGHT = 640
     }
 
     override suspend fun newFrame(frame: Image, rotationDegrees: Int): FrameInference {
@@ -62,6 +58,9 @@ class GuruVideoImpl constructor(
     }
 
     override suspend fun newFrame(frame: Bitmap): FrameInference {
+        if (frame.width != INPUT_RESOLUTION_WIDTH || frame.height != INPUT_RESOLUTION_HEIGHT) {
+            throw IllegalArgumentException("Camera input must have resolution of width=${INPUT_RESOLUTION_WIDTH}, height=${INPUT_RESOLUTION_HEIGHT}")
+        }
         val newFrameIndex = frameIndex.incrementAndGet()
         if (!inferenceLock.tryLock()) {
             return previousFrameInference(newFrameIndex)
@@ -71,7 +70,6 @@ class GuruVideoImpl constructor(
     }
 
     override suspend fun finish(): Analysis {
-        isRecording = false
         return if (analysisClient == null) {
             emptyAnalysis()
         } else {
@@ -86,8 +84,8 @@ class GuruVideoImpl constructor(
             "domain" to domain,
             "activity" to activity,
             "inference" to "local",
-            "resolutionWidth" to 480,
-            "resolutionHeight" to 640,
+            "resolutionWidth" to INPUT_RESOLUTION_WIDTH,
+            "resolutionHeight" to INPUT_RESOLUTION_HEIGHT,
         ))
 
         val request: Request = Request.Builder()
@@ -123,6 +121,7 @@ class GuruVideoImpl constructor(
                 frameIndex = newFrameIndex,
                 secondsSinceStart = 0.0,
                 analysis = analysis,
+                smoother = smoother,
             )
         }
         else {
@@ -132,12 +131,13 @@ class GuruVideoImpl constructor(
                 frameIndex = newFrameIndex,
                 secondsSinceStart = previousFrameInference!!.secondsSinceStart,
                 analysis = analysis,
+                smoother = smoother,
             )
         }
     }
 
     private suspend fun runInference(frame: Bitmap, newFrameIndex: Int): FrameInference {
-        if (isRecording && startedAt == null) {
+        if (startedAt == null) {
             startedAt = Instant.now()
             videoId = createVideo()
             analysisClient = AnalysisClient(videoId!!, apiKey, analysisPerSecond)
@@ -145,28 +145,28 @@ class GuruVideoImpl constructor(
 
         val frameTimestamp = Instant.now()
         try {
-            val keypoints = poseEstimator!!.estimatePose(frame)
-            val keypointMap = HashMap<Int, Keypoint>()
-            keypoints.forEachIndexed { index: Int, keypoint: Keypoint? ->
-                keypointMap[index] = keypoint!!
+            val bbox: BoundingBox? = if (previousFrameInference?.keypoints == null) {
+                null
+            } else {
+                BoundingBox.fromPreviousFrame(previousFrameInference!!.skeleton(), frame.width, frame.height)
             }
 
+            val keypoints = poseEstimator!!.estimatePose(frame, bbox)
             val newInference = FrameInference(
-                keypoints = keypointMap,
+                keypoints = keypoints.mapIndexed { i, k -> i to k}.toMap(),
                 previousFrame = previousFrameInference,
                 frameIndex = newFrameIndex,
                 secondsSinceStart = if (startedAt == null) -1.0 else (
                         (frameTimestamp.toEpochMilli() - startedAt!!.toEpochMilli()) / 1000.0
                 ),
-                analysis = latestAnalysis ?: emptyAnalysis()
+                analysis = latestAnalysis ?: emptyAnalysis(),
+                smoother = smoother,
             )
 
-            if (isRecording && analysisClient != null) {
-                analysisScope.launch {
-                    val newAnalysis = analysisClient!!.add(newInference)
-                    if (newAnalysis != null) {
-                        latestAnalysis = newAnalysis
-                    }
+            analysisScope.launch {
+                val newAnalysis = analysisClient!!.add(newInference)
+                if (newAnalysis != null) {
+                    latestAnalysis = newAnalysis
                 }
             }
 
