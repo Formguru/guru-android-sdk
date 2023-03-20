@@ -20,10 +20,10 @@ class BoundingBox constructor(
                 InferenceLandmark.RIGHT_KNEE,
             )
 
-            val isTorsoVisible = requiredLandmarks.all {
+            val isMostOfBodyVisible = requiredLandmarks.all {
                 prevKeypoints[it]!!.score >= minScore
             }
-            if (!isTorsoVisible) {
+            if (!isMostOfBodyVisible) {
                 return null
             }
 
