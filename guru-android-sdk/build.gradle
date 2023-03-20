@@ -2,6 +2,9 @@ plugins {
     id 'com.android.library'
     id 'org.jetbrains.kotlin.android'
 }
+configurations {
+    ncnnZip
+}
 
 android {
     namespace 'ai.getguru.androidsdk'
@@ -29,6 +32,12 @@ android {
             withSourcesJar()
         }
     }
+    externalNativeBuild {
+        cmake {
+            path file('src/main/jni/CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
 }
 
 dependencies {
@@ -38,10 +47,21 @@ dependencies {
     implementation 'com.google.code.gson:gson:2.10.1'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4'
     implementation 'com.squareup.okhttp3:okhttp:4.10.0'
+    ncnnZip 'Tencent:ncnn:20230223@zip'
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'com.squareup.okhttp3:mockwebserver:4.10.0'
 
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}
+
+task unzipNcnn(type: Copy) {
+    def zipFile = configurations.ncnnZip.singleFile
+    from zipTree(zipFile)
+    into "$rootDir/guru-android-sdk/src/main/jni"
+}
+
+project.afterEvaluate {
+    preBuild.dependsOn unzipNcnn
 }

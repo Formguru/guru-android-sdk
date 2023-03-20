@@ -1,16 +1,17 @@
 package ai.getguru.androidsdk
 
-import kotlin.collections.HashMap
-
 class FrameInference constructor(
     val keypoints: Map<Int, Keypoint>,
     val previousFrame: FrameInference?,
     val frameIndex: Int,
     val secondsSinceStart: Double,
     val analysis: Analysis,
+    smoother: KeypointsFilter? = null,
 ) {
-    val smoothKeypoints: Map<Int, Keypoint>
 
+    val smoothedKeypoints: Keypoints? = smoother?.smooth(this.skeleton())
+
+    @Deprecated("Use skeleton().getPairs()")
     val cocoPairs = arrayOf(
         arrayOf("left_shoulder", "right_shoulder"),
         arrayOf("left_shoulder", "left_hip"),
@@ -26,16 +27,26 @@ class FrameInference constructor(
         arrayOf("right_elbow", "right_wrist"),
     )
 
-    init {
-        smoothKeypoints = if (previousFrame?.smoothKeypoints == null) {
-            keypoints
+    @Deprecated("Use skeleton() to access keypoints")
+    val smoothKeypoints: Map<Int, Keypoint> by lazy {
+        smoothedKeypoints?.mapIndexed{ i, k -> i to k }?.toMap() ?: keypoints
+    }
+
+    fun skeleton(disableSmoothing: Boolean = false): Keypoints {
+        return if (disableSmoothing || smoothedKeypoints == null) {
+            val orderedKeypoints = keypoints.keys.toList().sorted().map { i -> keypoints[i]!! }
+            Keypoints.of(orderedKeypoints.toList())
         } else {
-            buildSmoothedKeypoints()
+            smoothedKeypoints
         }
     }
 
-    fun keypointForLandmark(landmark: InferenceLandmark): Keypoint? {
-        return smoothKeypoints[landmark.cocoIndex()]
+    fun keypointForLandmark(landmark: InferenceLandmark, disableSmoothing: Boolean = false): Keypoint? {
+        return if (disableSmoothing || smoothedKeypoints == null) {
+            keypoints[landmark.cocoIndex()]
+        } else {
+            smoothedKeypoints[landmark]
+        }
     }
 
     fun userFacing(): UserFacing {
@@ -60,31 +71,5 @@ class FrameInference constructor(
                 UserFacing.OTHER
             }
         }
-    }
-
-    private fun buildSmoothedKeypoints() : Map<Int, Keypoint> {
-        val currentFrameWeight = 0.25
-
-        val smoothedKeypoints = HashMap<Int, Keypoint>()
-        for (nextLandmark in InferenceLandmark.values()) {
-            val previousKeypoint = previousFrame!!.keypointForLandmark(nextLandmark)
-            val landmarkIndex = nextLandmark.cocoIndex()
-            val currentKeypoint = keypoints[landmarkIndex]
-
-            val minScore = 0.01
-            if (previousKeypoint == null || previousKeypoint.score < minScore) {
-                smoothedKeypoints[landmarkIndex] = currentKeypoint!!
-            } else if (currentKeypoint == null || currentKeypoint.score < minScore) {
-                smoothedKeypoints[landmarkIndex] = previousKeypoint
-            } else {
-                smoothedKeypoints[landmarkIndex] = Keypoint(
-                    x = (1 - currentFrameWeight) * previousKeypoint.x + currentFrameWeight * currentKeypoint.x,
-                    y = (1 - currentFrameWeight) * previousKeypoint.y + currentFrameWeight * currentKeypoint.y,
-                    score = (1 - currentFrameWeight) * previousKeypoint.score + currentFrameWeight * currentKeypoint.score
-                )
-            }
-        }
-
-        return smoothedKeypoints
     }
 }

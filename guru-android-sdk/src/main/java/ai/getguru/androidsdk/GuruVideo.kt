@@ -5,7 +5,10 @@ import android.media.Image
 
 interface GuruVideo {
 
-    suspend fun newFrame(frame: Image): FrameInference
+    suspend fun newFrame(frame: Image): FrameInference {
+        return newFrame(frame, 0)
+    }
+    suspend fun newFrame(frame: Image, rotationDegrees: Int): FrameInference
 
     suspend fun newFrame(frame: Bitmap): FrameInference
 

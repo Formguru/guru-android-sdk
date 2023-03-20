@@ -83,3 +83,6 @@ lint/generated/
 lint/outputs/
 lint/tmp/
 # lint/reports/
+
+# NCNN library binaries
+guru-android-sdk/src/main/jni/ncnn-20230223-android-vulkan

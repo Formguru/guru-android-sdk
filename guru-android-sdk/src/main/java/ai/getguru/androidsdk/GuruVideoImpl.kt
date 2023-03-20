@@ -1,5 +1,6 @@
 package ai.getguru.androidsdk
 
+import ai.getguru.androidsdk.ImageUtils.toBitmap
 import android.content.Context
 import android.graphics.Bitmap
 import android.media.Image
@@ -24,6 +25,7 @@ class GuruVideoImpl constructor(
     private val domain: String,
     private val activity: String,
     private val analysisPerSecond: Int = 8,
+    private val smoother: KeypointsFilter? = null, // TODO: make private
 ) : GuruVideo {
 
     private val LOG_TAG = "GuruVideoImpl"
@@ -32,31 +34,33 @@ class GuruVideoImpl constructor(
     private var latestAnalysis: Analysis? = null
     private var frameIndex: AtomicInteger = AtomicInteger(-1)
     private val inferenceLock = ReentrantLock()
-    private var poseEstimator: PoseEstimator? = null
+    private var poseEstimator: IPoseEstimator? = null
     private var videoId: String? = null
     private var startedAt: Instant? = null
     private var analysisClient: AnalysisClient? = null
     private val httpClient = OkHttpClient()
     private val analysisScope = CoroutineScope(context = Dispatchers.IO)
 
+
     companion object {
         suspend fun create(domain: String, activity: String, apiKey: String, context: Context): GuruVideoImpl {
-            return GuruVideoImpl(apiKey, context, domain, activity).also {
+            return GuruVideoImpl(apiKey, context, domain, activity, smoother = KeypointsFilter()).also {
                 it.init()
             }
         }
+
+        const val INPUT_RESOLUTION_WIDTH = 480
+        const val INPUT_RESOLUTION_HEIGHT = 640
     }
 
-    override suspend fun newFrame(frame: Image): FrameInference {
-        val newFrameIndex = frameIndex.incrementAndGet()
-        if (!inferenceLock.tryLock()) {
-            return previousFrameInference(newFrameIndex)
-        }
-
-        return runInference(imageToBitmap(frame), newFrameIndex)
+    override suspend fun newFrame(frame: Image, rotationDegrees: Int): FrameInference {
+        return newFrame(frame.toBitmap(rotationDegrees))
     }
 
     override suspend fun newFrame(frame: Bitmap): FrameInference {
+        if (frame.width != INPUT_RESOLUTION_WIDTH || frame.height != INPUT_RESOLUTION_HEIGHT) {
+            throw IllegalArgumentException("Camera input must have resolution of width=${INPUT_RESOLUTION_WIDTH}, height=${INPUT_RESOLUTION_HEIGHT}")
+        }
         val newFrameIndex = frameIndex.incrementAndGet()
         if (!inferenceLock.tryLock()) {
             return previousFrameInference(newFrameIndex)
@@ -66,12 +70,11 @@ class GuruVideoImpl constructor(
     }
 
     override suspend fun finish(): Analysis {
-        if (analysisClient == null) {
-            return emptyAnalysis()
-        }
-        else {
+        return if (analysisClient == null) {
+            emptyAnalysis()
+        } else {
             analysisClient!!.waitUntilQuiet()
-            return analysisClient!!.flush() ?: emptyAnalysis()
+            analysisClient!!.flush() ?: emptyAnalysis()
         }
     }
 
@@ -81,8 +84,8 @@ class GuruVideoImpl constructor(
             "domain" to domain,
             "activity" to activity,
             "inference" to "local",
-            "resolutionWidth" to 480,
-            "resolutionHeight" to 640,
+            "resolutionWidth" to INPUT_RESOLUTION_WIDTH,
+            "resolutionHeight" to INPUT_RESOLUTION_HEIGHT,
         ))
 
         val request: Request = Request.Builder()
@@ -103,55 +106,22 @@ class GuruVideoImpl constructor(
         }
     }
 
-    private fun imageToBitmap(image: Image): Bitmap {
-        val planes = image.planes
-        val yuvBytes = arrayOfNulls<ByteArray>(3)
-        for (i in planes.indices) {
-            val buffer = planes[i].buffer
-            if (yuvBytes[i] == null) {
-                yuvBytes[i] = ByteArray(buffer.capacity())
-            }
-            buffer[yuvBytes[i]!!]
-        }
-
-        val yRowStride = planes[0].rowStride
-        val uvRowStride = planes[1].rowStride
-        val uvPixelStride = planes[1].pixelStride
-        val rgbBytes = IntArray(image.width * image.height)
-        ImageUtils.convertYUV420ToARGB8888(
-            yuvBytes[0]!!,
-            yuvBytes[1]!!,
-            yuvBytes[2]!!,
-            image.width,
-            image.height,
-            yRowStride,
-            uvRowStride,
-            uvPixelStride,
-            rgbBytes
-        )
-
-        val rgbFrameBitmap = Bitmap.createBitmap(image.width, image.height, Bitmap.Config.ARGB_8888)
-        rgbFrameBitmap?.setPixels(rgbBytes, 0, image.width, 0, 0, image.width, image.height)
-
-        return rgbFrameBitmap
-    }
 
     private suspend fun init() {
         val modelStore = ModelStore(apiKey, context)
-        poseEstimator = PoseEstimator.withTorchModel(
-            modelStore.getModel()
-        )
+        poseEstimator = modelStore.getPoseEstimator()
     }
 
     private fun previousFrameInference(newFrameIndex: Int, analysis: Analysis? = null): FrameInference {
         val analysis = analysis ?: latestAnalysis ?: emptyAnalysis()
         if (previousFrameInference == null) {
             return FrameInference(
-                keypoints = HashMap<Int, Keypoint>(),
+                keypoints = HashMap(),
                 previousFrame = null,
                 frameIndex = newFrameIndex,
                 secondsSinceStart = 0.0,
                 analysis = analysis,
+                smoother = smoother,
             )
         }
         else {
@@ -161,6 +131,7 @@ class GuruVideoImpl constructor(
                 frameIndex = newFrameIndex,
                 secondsSinceStart = previousFrameInference!!.secondsSinceStart,
                 analysis = analysis,
+                smoother = smoother,
             )
         }
     }
@@ -174,20 +145,22 @@ class GuruVideoImpl constructor(
 
         val frameTimestamp = Instant.now()
         try {
-            val keypoints = poseEstimator!!.estimatePose(frame)
-            val keypointMap = HashMap<Int, Keypoint>()
-            keypoints.forEachIndexed { index: Int, keypoint: Keypoint? ->
-                keypointMap[index] = keypoint!!
+            val bbox: BoundingBox? = if (previousFrameInference?.keypoints == null) {
+                null
+            } else {
+                BoundingBox.fromPreviousFrame(previousFrameInference!!.skeleton(), frame.width, frame.height)
             }
 
+            val keypoints = poseEstimator!!.estimatePose(frame, bbox)
             val newInference = FrameInference(
-                keypoints = keypointMap,
+                keypoints = keypoints.mapIndexed { i, k -> i to k}.toMap(),
                 previousFrame = previousFrameInference,
                 frameIndex = newFrameIndex,
-                secondsSinceStart = (
-                        frameTimestamp.toEpochMilli() - startedAt!!.toEpochMilli()
-                        ) / 1000.0,
-                analysis = latestAnalysis ?: emptyAnalysis()
+                secondsSinceStart = if (startedAt == null) -1.0 else (
+                        (frameTimestamp.toEpochMilli() - startedAt!!.toEpochMilli()) / 1000.0
+                ),
+                analysis = latestAnalysis ?: emptyAnalysis(),
+                smoother = smoother,
             )
 
             analysisScope.launch {
