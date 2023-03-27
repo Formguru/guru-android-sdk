@@ -148,7 +148,7 @@ class GuruVideoImpl constructor(
             val bbox: BoundingBox? = if (previousFrameInference?.keypoints == null) {
                 null
             } else {
-                BoundingBox.fromPreviousFrame(previousFrameInference!!.skeleton(), frame.width, frame.height)
+                BoundingBox.fromPreviousFrame(previousFrameInference!!.skeleton())
             }
 
             val keypoints = poseEstimator!!.estimatePose(frame, bbox)

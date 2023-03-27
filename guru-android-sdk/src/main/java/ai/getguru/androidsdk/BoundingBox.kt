@@ -5,14 +5,14 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 class BoundingBox constructor(
-    val x1: Int,
-    val y1: Int,
-    val x2: Int,
-    val y2: Int
+    val x1: Float,
+    val y1: Float,
+    val x2: Float,
+    val y2: Float
 ) {
     companion object {
 
-        fun fromPreviousFrame(prevKeypoints: Keypoints, width: Int, height: Int, minScore: Float = 0.2f): BoundingBox? {
+        fun fromPreviousFrame(prevKeypoints: Keypoints, minScore: Float = 0.2f): BoundingBox? {
             val requiredLandmarks = listOf(
                 InferenceLandmark.LEFT_SHOULDER,
                 InferenceLandmark.RIGHT_SHOULDER,
@@ -31,26 +31,24 @@ class BoundingBox constructor(
             if (goodKeypoints.isEmpty()) {
                 return null
             }
-            val minX = goodKeypoints.minOf { it.x } * width
-            val maxX = goodKeypoints.maxOf { it.x } * width
-            val minY = goodKeypoints.minOf { it.y } * height
-            val maxY = goodKeypoints.maxOf { it.y } * height
+            val minX = goodKeypoints.minOf { it.x }
+            val maxX = goodKeypoints.maxOf { it.x }
+            val minY = goodKeypoints.minOf { it.y }
+            val maxY = goodKeypoints.maxOf { it.y }
 
             val padTop = .1 * (maxY - minY)
             val padBottom = .2 * (maxY - minY)
             val padSides = .2 * (maxX - minX)
 
-            fun clampX(a: Double): Int {
-                return max(min(width.toDouble(), a), 0.0).roundToInt()
+            fun clamp(a: Double): Float {
+                return max(min(1.0, a), 0.0).toFloat()
             }
-            fun clampY(a: Double): Int {
-                return max(min(height.toDouble(), a), 0.0).roundToInt()
-            }
+
             return BoundingBox(
-                clampX(minX - padSides),
-                clampY(minY - padTop),
-                clampX(maxX + padSides),
-                clampY(maxY + padBottom),
+                clamp(minX - padSides),
+                clamp(minY - padTop),
+                clamp(maxX + padSides),
+                clamp(maxY + padBottom),
             )
         }
     }

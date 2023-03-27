@@ -1,7 +1,7 @@
 package ai.getguru.androidsdk
 
-import ai.getguru.androidsdk.ImageUtils.toBitmap
 import android.content.Context
+import android.content.res.AssetManager
 import android.graphics.Bitmap
 import android.media.Image
 import java.util.concurrent.locks.ReentrantLock
@@ -23,6 +23,13 @@ class PoseTracker constructor(
                 it.init()
             }
         }
+
+        fun createWithModel(apiKey: String, context: Context, model: String, assetManager: AssetManager, isSmoothingEnabled: Boolean = true): PoseTracker {
+            val smoother: KeypointsFilter? = if (isSmoothingEnabled) KeypointsFilter() else null
+            return PoseTracker(apiKey, context, smoother).also {
+                it.init(model, assetManager)
+            }
+        }
     }
 
     private suspend fun init() {
@@ -30,8 +37,29 @@ class PoseTracker constructor(
         poseEstimator = modelStore.getPoseEstimator()
     }
 
+    private fun init(modelPath: String, assetManager: AssetManager) {
+        val modelStore = ModelStore(apiKey, context)
+        poseEstimator = modelStore.getPoseEstimator(modelPath, assetManager)
+    }
+
     fun newFrame(frame: Image, rotationDegrees: Int): Keypoints? {
-        return newFrame(frame.toBitmap(rotationDegrees))
+        if (!inferenceLock.tryLock()) {
+            return previousKeypoints
+        }
+        try {
+            val bbox: BoundingBox? = if (previousKeypoints == null) {
+                null
+            } else {
+                BoundingBox.fromPreviousFrame(previousKeypoints!!)
+            }
+
+            val keypoints = poseEstimator!!.estimatePose(frame, rotationDegrees, bbox)
+            previousKeypoints = smoother?.smooth(keypoints) ?: keypoints
+        } finally {
+            inferenceLock.unlock()
+        }
+
+        return previousKeypoints!!
     }
 
     fun newFrame(frame: Bitmap): Keypoints? {
@@ -50,7 +78,7 @@ class PoseTracker constructor(
             val bbox: BoundingBox? = if (previousKeypoints == null) {
                 null
             } else {
-                BoundingBox.fromPreviousFrame(previousKeypoints!!, frame.width, frame.height)
+                BoundingBox.fromPreviousFrame(previousKeypoints!!)
             }
 
             val keypoints = poseEstimator!!.estimatePose(frame, bbox)

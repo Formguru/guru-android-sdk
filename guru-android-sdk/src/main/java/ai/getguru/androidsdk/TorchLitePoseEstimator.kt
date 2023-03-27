@@ -16,7 +16,7 @@ import java.io.IOException
 class TorchLitePoseEstimator private constructor(private val module: Module) : IPoseEstimator {
 
     override fun estimatePose(bitmap: Bitmap): Keypoints {
-        val defaultBbox = BoundingBox(0, 0, bitmap.width, bitmap.height)
+        val defaultBbox = BoundingBox(0f, 0f, 1f, 1f)
         return estimatePose(bitmap, defaultBbox)
     }
 
