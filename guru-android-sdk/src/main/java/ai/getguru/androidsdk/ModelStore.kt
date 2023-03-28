@@ -1,13 +1,16 @@
 package ai.getguru.androidsdk
 
 import android.content.Context
+import android.content.res.AssetManager
 import android.util.Log
 import com.google.gson.Gson
 import kotlinx.coroutines.*
 import org.pytorch.LiteModuleLoader
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URL
 import java.util.zip.ZipFile
 
@@ -43,18 +46,29 @@ class ModelStore(
     override val coroutineContext
         get() = Dispatchers.IO
 
+    fun getPoseEstimator(modelPath: String, assetManager: AssetManager): IPoseEstimator {
+        return if (modelPath.endsWith(".onnx")) {
+            OnnxPoseEstimator.withModel(modelPath, assetManager)
+        } else if (modelPath.endsWith(".ptl")) {
+            val model = LiteModuleLoader.loadModuleFromAsset(assetManager, modelPath)
+            TorchLitePoseEstimator.withTorchModel(model)
+        } else {
+            throw IllegalArgumentException(
+                "Unsupported model type, expected a .onnx or a .ptl file but got $modelPath!"
+            )
+        }
+    }
+
     suspend fun getPoseEstimator(): IPoseEstimator {
         val modelFiles = getModelFiles()
-        val isNcnn = modelFiles.size == 2 && listOf(".param", ".bin").all { suffix -> modelFiles.any { it.name.endsWith(suffix) } }
+        val isOnnx = modelFiles.size == 1 && modelFiles[0].name.endsWith(".onnx")
         val isTorchLite = modelFiles.size == 1 && modelFiles[0].name.endsWith(".ptl")
-        if (isNcnn) {
-            val paramFile = modelFiles.first() { it.name.endsWith(".param") }
-            val binFile = modelFiles.first() { it.name.endsWith(".bin") }
-            return NcnnPoseEstimator(paramFile, binFile)
+        return if (isOnnx) {
+            OnnxPoseEstimator.withModel(modelFiles[0].toPath())
         } else if (isTorchLite) {
             val ptlFile = modelFiles.first()
             val model = LiteModuleLoader.load(ptlFile.absolutePath)
-            return TorchLitePoseEstimator.withTorchModel(model)
+            TorchLitePoseEstimator.withTorchModel(model)
         } else {
             throw Exception("Unexpected model type: ${modelFiles[0].name.substringAfterLast(".")}")
         }
