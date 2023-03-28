@@ -57,7 +57,8 @@ open class InstallNativeLibsTask : DefaultTask() {
 
     private fun downloadFile(url: String): File {
         val filename = URI(url).rawPath.substringAfterLast("/")
-        val downloadedFile = File("/tmp", filename)
+        val tmpdir = System.getProperty("java.io.tmpdir") ?: "/tmp"
+        val downloadedFile = File(tmpdir, filename)
         if (!downloadedFile.exists()) {
             val request = Request.Builder().url(url).build()
             val response = OkHttpClient().newCall(request).execute()
@@ -100,7 +101,6 @@ open class InstallNativeLibsTask : DefaultTask() {
     private fun remove(path: Path) {
         if (path.isDirectory()) {
             path.forEachDirectoryEntry {
-                println("Removing ${it}")
                 remove(it)
             }
         }
