@@ -1,5 +1,6 @@
 package ai.getguru.androidsdk
 
+import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
@@ -9,6 +10,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.IOException
 import java.time.Instant
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -22,6 +24,7 @@ class AnalysisClient(
     private val apiServer: String = "https://api.getguru.fitness"
 ) {
 
+    private val LOG_TAG = "AnalysisClient"
     private val JSON_MEDIA_TYPE: MediaType = "application/json; charset=utf-8".toMediaType()
 
     private var buffer = Collections.synchronizedList(mutableListOf<FrameInference>())
@@ -60,14 +63,20 @@ class AnalysisClient(
         if (buildLock.tryLock()) {
             try {
                 val bufferCopy = buffer.toList()
-                val analysis = patchAnalysis(bufferCopy)
+                try {
+                    val analysis = patchAnalysis(bufferCopy)
 
-                if (bufferLock.tryLock(10, TimeUnit.SECONDS)) {
-                    buffer.subList(0, bufferCopy.size).clear()
-                    bufferLock.unlock()
+                    if (bufferLock.tryLock(10, TimeUnit.SECONDS)) {
+                        buffer.subList(0, bufferCopy.size).clear()
+                        bufferLock.unlock()
+                    }
+
+                    return analysis
                 }
-
-                return analysis
+                catch (e: IOException) {
+                    Log.w(LOG_TAG, "Failed to update analysis because $e")
+                    return null
+                }
             }
             finally {
                 buildLock.unlock()
