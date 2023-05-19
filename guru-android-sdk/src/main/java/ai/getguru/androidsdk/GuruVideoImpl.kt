@@ -79,7 +79,7 @@ class GuruVideoImpl constructor(
     }
 
     private fun boundingBox(frame: Bitmap): BoundingBox? {
-        val bbox: BoundingBox? = if (previousFrameInference?.keypoints == null) {
+        return if (previousFrameInference?.keypoints == null) {
             objectDetector!!
                 .detect(TensorImage.fromBitmap(frame))
                 .firstOrNull {
@@ -90,7 +90,6 @@ class GuruVideoImpl constructor(
         } else {
             BoundingBox.fromPreviousFrame(previousFrameInference!!.skeleton())
         }
-        return bbox
     }
 
     private suspend fun createVideo(): String {
