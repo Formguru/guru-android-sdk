@@ -135,8 +135,8 @@ extern "C"
 JNIEXPORT jfloatArray Java_ai_getguru_androidsdk_OnnxPoseEstimator_detectPose(JNIEnv *env, jobject thiz, jobject bitmap, jobject bbox) {
     AndroidBitmapInfo info;
     AndroidBitmap_getInfo(env, bitmap, &info);
-    __android_log_print(ANDROID_LOG_FATAL, "guru_pose_inference", "Unsupported format for Bitmap: %d", info.format);
     if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888) {
+        __android_log_print(ANDROID_LOG_FATAL, "guru_pose_inference", "Unsupported format for Bitmap: %d", info.format);
         exit(-1);
     }
     cv::Mat img = bitmap_to_mat(env, bitmap);
