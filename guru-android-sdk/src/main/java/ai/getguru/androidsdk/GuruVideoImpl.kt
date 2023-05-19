@@ -15,6 +15,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.tensorflow.lite.support.image.TensorImage
+import org.tensorflow.lite.task.vision.detector.ObjectDetector
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.ReentrantLock
@@ -35,6 +37,7 @@ class GuruVideoImpl constructor(
     private var frameIndex: AtomicInteger = AtomicInteger(-1)
     private val inferenceLock = ReentrantLock()
     private var poseEstimator: IPoseEstimator? = null
+    private var objectDetector: ObjectDetector? = null
     private var videoId: String? = null
     private var startedAt: Instant? = null
     private var analysisClient: AnalysisClient? = null
@@ -58,9 +61,6 @@ class GuruVideoImpl constructor(
     }
 
     override suspend fun newFrame(frame: Bitmap): FrameInference {
-        if (frame.width != INPUT_RESOLUTION_WIDTH || frame.height != INPUT_RESOLUTION_HEIGHT) {
-            throw IllegalArgumentException("Camera input must have resolution of width=${INPUT_RESOLUTION_WIDTH}, height=${INPUT_RESOLUTION_HEIGHT}")
-        }
         val newFrameIndex = frameIndex.incrementAndGet()
         if (!inferenceLock.tryLock()) {
             return previousFrameInference(newFrameIndex)
@@ -76,6 +76,21 @@ class GuruVideoImpl constructor(
             analysisClient!!.waitUntilQuiet()
             analysisClient!!.flush() ?: emptyAnalysis()
         }
+    }
+
+    private fun boundingBox(frame: Bitmap): BoundingBox? {
+        val bbox: BoundingBox? = if (previousFrameInference?.keypoints == null) {
+            objectDetector!!
+                .detect(TensorImage.fromBitmap(frame))
+                .firstOrNull {
+                    it.categories.any { category -> category.label == "person" }
+                }?.let {
+                    BoundingBox.fromRect(it.boundingBox, frame.width, frame.height)
+                }
+        } else {
+            BoundingBox.fromPreviousFrame(previousFrameInference!!.skeleton())
+        }
+        return bbox
     }
 
     private suspend fun createVideo(): String {
@@ -110,6 +125,14 @@ class GuruVideoImpl constructor(
     private suspend fun init() {
         val modelStore = ModelStore(apiKey, context)
         poseEstimator = modelStore.getPoseEstimator()
+
+        objectDetector = ObjectDetector.createFromFileAndOptions(
+            context,
+            "lite-model_efficientdet_lite2_detection_metadata_1.tflite",
+            ObjectDetector.ObjectDetectorOptions.builder()
+                .setMaxResults(1)
+                .build()
+        )
     }
 
     private fun previousFrameInference(newFrameIndex: Int, analysis: Analysis? = null): FrameInference {
@@ -145,11 +168,7 @@ class GuruVideoImpl constructor(
 
         val frameTimestamp = Instant.now()
         try {
-            val bbox: BoundingBox? = if (previousFrameInference?.keypoints == null) {
-                null
-            } else {
-                BoundingBox.fromPreviousFrame(previousFrameInference!!.skeleton())
-            }
+            val bbox: BoundingBox? = boundingBox(frame)
 
             val keypoints = poseEstimator!!.estimatePose(frame, bbox)
             val newInference = FrameInference(
